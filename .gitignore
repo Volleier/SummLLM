@@ -1,0 +1,12 @@
+## Ignore idea files
+.idea/
+
+## Ignore visual studio code files
+.vscode/
+
+## Ignore log files
+logs/
+*.log
+
+## Ignore python cache files
+__pycache__/
