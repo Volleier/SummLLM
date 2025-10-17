@@ -1,4 +1,3 @@
-# backend/main.py
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -17,7 +16,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import os
 
-# 配置日志
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -25,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# 数据模型
+# Data models: Pydantic definitions for requests and responses (used for input validation and automatic docs)
 class SummaryRequest(BaseModel):
     text: str
     max_length: int = 150
@@ -63,44 +62,44 @@ class HealthResponse(BaseModel):
     model_name: str
 
 
-# BART-large-CNN 后端服务
+# BART-large-CNN backend service wrapper class
 class BartSummarizationBackend:
     def __init__(self):
+        # Initialize FastAPI app and basic attributes
         self.app = FastAPI(
-            title="BART-large-CNN 文本摘要API",
-            description="基于BART-large-CNN模型的文本摘要服务",
+            title="BART-large-CNN Text Summarization API",
+            description="Text summarization service based on BART-large-CNN model",
             version="1.0.0"
         )
 
-        # 模型配置
-        # 优先从环境变量 LOCAL_MODEL_PATH 加载本地模型（例如 E:\Project\SummLLM\backend\models\bart.large.cnn）
+        # Model path: prefer environment variable, otherwise use project default path
         default_local = os.path.join(os.path.dirname(__file__), "models", "bart.large.cnn")
         self.model_name = os.environ.get("LOCAL_MODEL_PATH", default_local)
         self.model = None
         self.tokenizer = None
-        self.device = self._get_device()
+        self.device = self._get_device()  # Auto-detect device (cuda/mps/cpu)
         self.model_loaded = False
 
-        # 线程池用于处理并发请求
+        # Thread pool to run inference tasks in threads to avoid blocking the event loop
         self.thread_pool = ThreadPoolExecutor(max_workers=4)
 
         self.setup_middleware()
         self.setup_routes()
 
-        # 启动时预加载模型
+        # Attach startup and shutdown event handlers
         self.app.add_event_handler("startup", self.startup_event)
         self.app.add_event_handler("shutdown", self.shutdown_event)
 
     def _get_device(self):
-        """检测可用设备"""
-        # 支持通过环境变量强制设备（例如 FORCE_DEVICE=cuda）
+        """Detect available device and return 'cuda'/'mps'/'cpu'"""
+        # Support forcing device via environment variable (e.g., FORCE_DEVICE=cuda)
         force_dev = os.environ.get("FORCE_DEVICE", "").lower()
         if force_dev in ("cuda", "gpu"):
             if torch.cuda.is_available():
-                logger.info("环境变量 FORCE_DEVICE=cuda，且 torch.cuda 可用，使用 GPU")
+                logger.info("Environment variable FORCE_DEVICE=cuda and torch.cuda is available, using GPU")
                 return "cuda"
             else:
-                logger.warning("环境变量 FORCE_DEVICE=cuda，但 torch.cuda 不可用，继续检测其它设备")
+                logger.warning("Environment variable FORCE_DEVICE=cuda but torch.cuda is not available, checking other devices")
 
         if torch.cuda.is_available():
             return "cuda"
@@ -110,24 +109,26 @@ class BartSummarizationBackend:
             return "cpu"
 
     def setup_middleware(self):
-        """设置中间件"""
+        """Set up CORS middleware (allow all origins for easier development)"""
         self.app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],  # 生产环境中应限制来源
+            allow_origins=["*"],  # Should restrict origins in production
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
         )
 
     def setup_routes(self):
-        """设置API路由"""
+        """Define API routes and handlers"""
 
         @self.app.get("/", include_in_schema=False)
         async def root():
-            return {"message": "BART-large-CNN 文本摘要服务运行中"}
+            # Root path for a simple health check
+            return {"message": "BART-large-CNN Text Summarization API is running"}
 
         @self.app.get("/health", response_model=HealthResponse)
         async def health_check():
+            # Return service and model load status
             return HealthResponse(
                 status="healthy",
                 model_loaded=self.model_loaded,
@@ -137,17 +138,17 @@ class BartSummarizationBackend:
 
         @self.app.post("/summarize", response_model=SummaryResponse)
         async def summarize_text(request: SummaryRequest):
-            """单文本摘要接口"""
+            """Single-text summarization endpoint"""
             if not self.model_loaded:
-                raise HTTPException(status_code=503, detail="模型未加载完成，请稍后重试")
+                raise HTTPException(status_code=503, detail="The model is not fully loaded, please try again later.")
 
             if not request.text.strip():
-                raise HTTPException(status_code=400, detail="文本内容不能为空")
+                raise HTTPException(status_code=400, detail="Text content cannot be empty.")
 
             start_time = time.time()
 
             try:
-                # 在线程池中运行模型推理
+                # Run model inference in thread pool to avoid blocking event loop
                 summary = await asyncio.get_event_loop().run_in_executor(
                     self.thread_pool,
                     self._generate_summary,
@@ -158,6 +159,7 @@ class BartSummarizationBackend:
                     request.length_penalty
                 )
 
+                # Compute processing time and compression ratio statistics
                 processing_time = time.time() - start_time
                 original_length = len(request.text.split())
                 summary_length = len(summary.split())
@@ -173,22 +175,22 @@ class BartSummarizationBackend:
                 )
 
             except Exception as e:
-                logger.error(f"摘要生成失败: {str(e)}")
-                raise HTTPException(status_code=500, detail=f"摘要生成失败: {str(e)}")
+                logger.error(f"Summary generation failed: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Summary generation failed: {str(e)}")
 
         @self.app.post("/summarize/batch", response_model=BatchSummaryResponse)
         async def batch_summarize(request: BatchSummaryRequest):
-            """批量文本摘要接口"""
+            """Batch summarization endpoint"""
             if not self.model_loaded:
-                raise HTTPException(status_code=503, detail="模型未加载完成，请稍后重试")
+                raise HTTPException(status_code=503, detail="The model is not fully loaded, please try again later.")
 
             if not request.texts:
-                raise HTTPException(status_code=400, detail="文本列表不能为空")
+                raise HTTPException(status_code=400, detail="Text list cannot be empty.")
 
             start_time = time.time()
 
             try:
-                # 批量处理
+                # Submit each text to thread pool (could be changed to concurrent batch processing)
                 summaries = []
                 for text in request.texts:
                     if text.strip():
@@ -212,26 +214,26 @@ class BartSummarizationBackend:
                 )
 
             except Exception as e:
-                logger.error(f"批量摘要生成失败: {str(e)}")
-                raise HTTPException(status_code=500, detail=f"批量摘要生成失败: {str(e)}")
+                logger.error(f"Batch summary generation failed: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Batch summary generation failed: {str(e)}")
 
     async def startup_event(self):
-        """应用启动时加载模型"""
-        logger.info("正在启动BART-large-CNN摘要服务...")
+        """Load model at application startup"""
+        logger.info("Starting BART-large-CNN text summarization service...")
         await self.load_model()
 
     async def shutdown_event(self):
-        """应用关闭时清理资源"""
-        logger.info("正在关闭服务...")
+        """Cleanup resources (like thread pool) on application shutdown"""
+        logger.info("Shutting down the service...")
         self.thread_pool.shutdown(wait=True)
 
     async def load_model(self):
-        """异步加载模型"""
+        """Asynchronously load the model, try pipeline first and log errors on failure"""
         try:
-            logger.info(f"开始加载模型: {self.model_name}")
-            logger.info(f"使用设备: {self.device}")
+            logger.info(f"Starting to load the model: {self.model_name}")
+            logger.info(f"Using device: {self.device}")
 
-            # 方法1: 使用pipeline (推荐，更简单)
+            # Method 1: use pipeline (recommended, wraps tokenizer + model)
             try:
                 self.summarizer = pipeline(
                     "summarization",
@@ -241,14 +243,15 @@ class BartSummarizationBackend:
                     torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
                 )
                 self.model_loaded = True
-                logger.info("BART-large-CNN模型加载成功!")
+                logger.info("BART-large-CNNModel loaded successfully!")
                 return
             except Exception as e:
-                logger.exception(f"尝试在 {self.device} 加载模型失败: {e}")
+                # Log failure of loading attempt; may try fallback to CPU below
+                logger.exception(f"Failed to load model on {self.device}: {e}")
 
-            # 如果原先期望使用 GPU，但失败则回退到 CPU 再尝试一次（方便本地调试）
+            # If GPU load fails, try fallback to CPU (useful for local debugging)
             if self.device == "cuda":
-                logger.info("GPU 加载失败，尝试回退到 CPU 加载模型...")
+                logger.info("GPU loading failed, trying to fallback to CPU...")
                 try:
                     self.device = "cpu"
                     self.summarizer = pipeline(
@@ -259,27 +262,28 @@ class BartSummarizationBackend:
                         torch_dtype=torch.float32
                     )
                     self.model_loaded = True
-                    logger.info("已在 CPU 上成功加载模型（回退加载）。")
+                    logger.info("Successfully loaded model on CPU (fallback).")
                     return
                 except Exception as e2:
-                    logger.exception(f"回退到 CPU 加载模型也失败: {e2}")
+                    logger.exception(f"Fallback to CPU loading also failed: {e2}")
 
+            # If all load methods fail, mark as not loaded and log error
             self.model_loaded = False
-            logger.error("模型加载最终失败，请检查模型目录（是否为 Hugging Face 格式），或确认 PyTorch CUDA 可用。")
+            logger.error("Model loading failed.")
 
         except Exception as e:
-            logger.error(f"模型加载失败: {e}")
+            logger.error(f"Model loading failed: {e}")
             self.model_loaded = False
-            # 这里可以添加重试逻辑
+            # Add retry logic here if desired
 
     def _generate_summary(self, text: str, max_length: int = 150, min_length: int = 30,
                           num_beams: int = 4, length_penalty: float = 2.0) -> str:
-        """生成摘要的核心方法"""
+        """Core method to generate summary (can run in a thread)"""
         try:
-            # 文本预处理
+            # Preprocess text
             cleaned_text = self._preprocess_text(text)
 
-            # 使用pipeline生成摘要
+            # Prefer using pipeline interface to generate summary
             if hasattr(self, 'summarizer'):
                 result = self.summarizer(
                     cleaned_text,
@@ -287,11 +291,11 @@ class BartSummarizationBackend:
                     min_length=min_length,
                     num_beams=num_beams,
                     length_penalty=length_penalty,
-                    do_sample=False  # 使用beam search，不采样
+                    do_sample=False  # Use beam search (no sampling)
                 )
                 return result[0]['summary_text']
 
-            # 或者使用模型直接生成
+            # If no pipeline, try manual generation using model + tokenizer
             elif self.model and self.tokenizer:
                 inputs = self.tokenizer(
                     cleaned_text,
@@ -317,41 +321,42 @@ class BartSummarizationBackend:
                 return summary
 
             else:
-                raise Exception("模型未正确加载")
+                # Raise exception when no model is loaded
+                raise Exception("The model didn't load correctly")
 
         except Exception as e:
-            logger.error(f"摘要生成错误: {e}")
+            logger.error(f"Summary generation error: {e}")
             raise e
 
     def _preprocess_text(self, text: str, max_input_length: int = 1024) -> str:
-        """文本预处理"""
+        """Simple text cleaning and length truncation"""
         import re
 
-        # 清理文本
-        text = re.sub(r'\s+', ' ', text)  # 合并多余空白字符
-        text = re.sub(r'[^\w\s.,!?;:()\-]', '', text)  # 移除特殊字符
+        # Collapse extra whitespace and remove most special characters
+        text = re.sub(r'\s+', ' ', text)  # Collapse multiple whitespace characters
+        text = re.sub(r'[^\w\s.,!?;:()\-]', '', text)  # Remove special characters
         text = text.strip()
 
-        # 限制输入长度
+        # Limit input max length, truncate and append ellipsis if too long
         if len(text) > max_input_length:
             text = text[:max_input_length] + "..."
 
         return text
 
 
-# 创建应用实例
+# Create application instance and export app (for uvicorn or other ASGI servers)
 app_backend = BartSummarizationBackend()
 app = app_backend.app
 
 if __name__ == "__main__":
     import uvicorn
 
-    # 启动服务
+    # Local development startup command (only runs when script executed directly)
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,  # 开发时启用热重载
-        workers=1,  # 由于模型较大，建议使用1个worker
+        reload=True,  # Enable hot reload during development
+        workers=1,  # Use 1 worker due to large model
         log_level="info"
     )

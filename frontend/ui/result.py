@@ -1,23 +1,29 @@
 import streamlit as st
 import time
-from core.utils import compute_metrics
+from core.utils import compute_metrics  # keep import (enable if you need statistical functions)
 
 def render_result_column(input_text, config, service):
-    st.subheader("📤 Summary Results")
+    # Render the right-side results column: summary generation, statistics, and download
+    st.subheader("Summary Results")
 
+    # Determine whether there is text available to generate a summary
     can_generate = bool(input_text and input_text.strip())
-    if st.button("🚀 Generate Summary", type="primary", use_container_width=True, disabled=not can_generate):
+    # Generate button (disabled when no input)
+    if st.button("Generate Summary", type="primary", use_container_width=True, disabled=not can_generate):
         if not can_generate:
-            st.warning("⚠️ Please enter text")
+            st.warning("Please enter text")
             return
 
-        with st.spinner("🤖 AI is analyzing the text and generating a summary..."):
+        # Show waiting indicator
+        with st.spinner("AI is analyzing the text and generating a summary..."):
             try:
+                # Simple progress bar animation (for demonstration only)
                 progress_bar = st.progress(0)
                 for i in range(100):
                     time.sleep(0.01)
                     progress_bar.progress(i + 1)
 
+                # Call the service to generate the summary and measure time
                 start_time = time.time()
                 summary = service.summarize(
                     input_text,
@@ -28,12 +34,14 @@ def render_result_column(input_text, config, service):
                     num_beams=config["num_beams"]
                 )
                 processing_time = time.time() - start_time
-                progress_bar.empty()
+                progress_bar.empty()  # clear the progress bar
 
-                st.success("✅ Summary generation complete!")
+                # Display result area: success message and summary text box
+                st.success("Summary generation complete!")
                 st.text_area("Generated summary:", value=summary, height=200, key="summary_output")
 
-                st.subheader("📊 Statistics")
+                # Display statistics (original length, summary length, compression ratio)
+                st.subheader("Statistics")
                 col_stat1, col_stat2, col_stat3 = st.columns(3)
                 with col_stat1:
                     st.metric("Original length", f"{len(input_text)} characters")
@@ -43,15 +51,18 @@ def render_result_column(input_text, config, service):
                     compression_ratio = len(input_text) / len(summary) if len(summary) > 0 else 0
                     st.metric("Compression ratio", f"{compression_ratio:.1f}:1")
 
-                st.info(f"⏱️ Processing time: {processing_time:.2f} seconds")
+                # Show processing time and provide a download button
+                st.info(f"Processing time: {processing_time:.2f} seconds")
                 st.download_button(
-                    label="📥 Download summary",
+                    label="Download summary",
                     data=summary,
                     file_name="generated_summary.txt",
                     mime="text/plain",
                     use_container_width=True
                 )
             except Exception as e:
-                st.error(f"❌ Error generating summary: {str(e)}")
+                # Catch and display errors during generation
+                st.error(f"Error generating summary: {str(e)}")
     else:
-        st.info("👆 Please enter text on the left and click 'Generate Summary'")
+        # Initial hint: instruct the user to enter text on the left and click generate
+        st.info("Please enter text on the left and click 'Generate Summary'")

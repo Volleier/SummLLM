@@ -3,18 +3,18 @@ import argparse
 import os
 import sys
 
-# 确保能导入同目录下的 main.py
+# Ensure main.py in the same directory can be imported
 sys.path.insert(0, os.path.dirname(__file__))
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="启动BART摘要后端服务")
-    parser.add_argument("--host", default="0.0.0.0", help="绑定地址")
-    parser.add_argument("--port", type=int, default=8000, help="绑定端口")
-    parser.add_argument("--reload", action="store_true", help="开发模式热重载")
+    parser = argparse.ArgumentParser(description="Start the BART summarization backend service")
+    parser.add_argument("--host", default="0.0.0.0", help="bind address")
+    parser.add_argument("--port", type=int, default=8000, help="bind port")
+    parser.add_argument("--reload", action="store_true", help="enable hot reload for development")
 
     args = parser.parse_args()
 
-    # 直接导入 app 对象，避免 uvicorn 的字符串导入失败
+    # Import the app object directly to avoid uvicorn's string import failure
     from main import app 
 
     uvicorn.run(

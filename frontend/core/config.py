@@ -1,13 +1,18 @@
 import streamlit as st
 
+# Render sidebar configuration panel
 def render_sidebar():
     with st.sidebar:
-        st.header("⚙️ Configuration")
+        st.header("Configuration")
+
+        # Model selection dropdown
         model_option = st.selectbox(
             "Select summarization model:",
-            ["facebook/bart-large-cnn", "t5-small", "google/pegasus-xsum"],
+            ["facebook/bart-large-cnn"],
             index=0
         )
+
+        # Max summary length slider
         max_length = st.slider(
             "Max summary length:",
             min_value=50,
@@ -15,6 +20,8 @@ def render_sidebar():
             value=150,
             step=10
         )
+
+        # Min summary length slider
         min_length = st.slider(
             "Min summary length:",
             min_value=10,
@@ -22,12 +29,18 @@ def render_sidebar():
             value=30,
             step=5
         )
+
+        # Advanced options expander
         with st.expander("Advanced options"):
+            # Whether to enable sampling
             do_sample = st.checkbox("Enable sampling", value=False)
+            # Sampling temperature
             temperature = st.slider("Temperature", 0.1, 1.0, 0.7)
+            # Number of beams for beam search
             num_beams = st.slider("Number of beams", 1, 8, 4)
 
         st.markdown("---")
+        # Usage instructions
         st.info("""
         **Instructions:**
         1. Enter or paste text below
@@ -36,6 +49,7 @@ def render_sidebar():
         4. View results and evaluation metrics
         """)
 
+    # Return configuration dict for main app
     return {
         "model_option": model_option,
         "max_length": max_length,

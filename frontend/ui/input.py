@@ -2,7 +2,12 @@ import streamlit as st
 from core.utils import load_uploaded_text
 
 def render_input_column():
-    st.subheader("📥 Input Text")
+    """
+    Render the input area and return the text string provided by the user.
+    Supports three input methods: Direct input, Example text, and Upload file.
+    """
+    st.subheader("Input Text")
+    # Choose input method (radio buttons, horizontal layout)
     input_method = st.radio(
         "Choose input method:",
         ["Direct input", "Example text", "Upload file"],
@@ -10,12 +15,15 @@ def render_input_column():
     )
 
     input_text = ""
+    # Handle 'Direct input' method: show a large text area for pasting or typing
     if input_method == "Direct input":
         input_text = st.text_area(
             "Enter text to summarize:",
             height=300,
             placeholder="Paste or type your text here..."
         )
+
+    # Handle 'Example text' method: provide several presets to choose from and display in the text area
     elif input_method == "Example text":
         example_options = {
             "News Article": """
@@ -35,9 +43,11 @@ def render_input_column():
         }
         selected_example = st.selectbox("Select example type:", list(example_options.keys()))
         input_text = st.text_area("Example text:", value=example_options[selected_example], height=300)
+    # Handle 'Upload file' method: accept only text files
     else:
         uploaded_file = st.file_uploader("Upload text file", type=['txt', 'md'])
         if uploaded_file is not None:
+            # Use core utility function to read uploaded text content
             input_text = load_uploaded_text(uploaded_file)
             st.success(f"File uploaded successfully! File size: {len(input_text)} characters")
 
