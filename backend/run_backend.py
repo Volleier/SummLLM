@@ -1,17 +1,12 @@
 import uvicorn
-import argparse
-import os
-import sys
-
-# Ensure main.py in the same directory can be imported
-sys.path.insert(0, os.path.dirname(__file__))
+from backend.config import settings
 
 if __name__ == "__main__":
     uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        workers=1,
-        log_level="info",
+        "backend.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=settings.RELOAD,
+        workers=settings.WORKERS,
+        log_level=settings.LOG_LEVEL,
     )

@@ -1,10 +1,10 @@
-import os
 import time
 from pathlib import Path
 import torch
-from transformers import pipeline
+from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
 from concurrent.futures import ThreadPoolExecutor
 
+from backend.config import settings
 from backend.core.logging_config import get_logger
 from backend.utils.device_utils import get_device
 from backend.utils.text_utils import preprocess_text
@@ -22,32 +22,18 @@ def _is_model_dir(p: Path) -> bool:
     return has_config and has_model
 
 def _find_local_snapshot(repo_id: str) -> Path | None:
-    # 在常见缓存目录中查找 snapshots 目录
+    """在常见缓存目录中查找 snapshots 目录."""
     repo_folder = f"models--{repo_id.replace('/', '--')}"
     candidates = []
 
-    env_roots = [os.getenv("TRANSFORMERS_CACHE"), os.getenv("HF_HUB_CACHE"), os.getenv("HF_HOME")]
-    roots: list[Path] = []
-    for r in env_roots:
-        if r:
-            roots.append(Path(r))
-            # HF_HOME 一般包含 hub 子目录
-            hub = Path(r) / "hub"
-            if hub.exists():
-                roots.append(hub)
-
-    # 兜底：用户未设置环境变量时，也尝试默认缓存位置
-    default_home = Path.home() / ".cache" / "huggingface" / "hub"
-    roots.extend([default_home, default_home.parent])  # 同时尝试 hub 与其父目录
+    roots = settings.get_cache_roots()
 
     for root in roots:
         snapshots_dir = root / repo_folder / "snapshots"
         if snapshots_dir.exists() and snapshots_dir.is_dir():
             for snap in snapshots_dir.iterdir():
-                if snap.is_dir():
-                    # 仅接受包含模型文件的 snapshot
-                    if _is_model_dir(snap):
-                        candidates.append(snap)
+                if snap.is_dir() and _is_model_dir(snap):
+                    candidates.append(snap)
 
     if not candidates:
         return None
@@ -60,21 +46,17 @@ class SummarizationService:
     """BART-large-CNN backend service wrapper."""
 
     def __init__(self) -> None:
-        # 在线 repo id（默认）
-        self.repo_id = os.environ.get("HF_REPO_ID", "facebook/bart-large-cnn")
-
-        # 优先从环境变量指定的本地目录加载
-        env_local = os.environ.get("LOCAL_MODEL_PATH", "").strip()
-        self.local_model_dir: Path | None = Path(env_local) if env_local else None
-
+        self.repo_id = settings.HF_REPO_ID
+        self.local_model_dir = settings.get_local_model_path()
         self.device = get_device()
         self.model_loaded: bool = False
+        self.model_name: str = settings.HF_REPO_ID  # 添加 model_name 属性
 
         self.model = None
         self.tokenizer = None
-
         self.summarizer = None
-        self.thread_pool = ThreadPoolExecutor(max_workers=4)
+        
+        self.thread_pool = ThreadPoolExecutor(max_workers=settings.THREAD_POOL_MAX_WORKERS)
 
     async def load_model(self) -> None:
         """Load model: prefer local dir; else try local cache snapshot; else online repo."""
@@ -89,38 +71,42 @@ class SummarizationService:
             else:
                 if self.local_model_dir:
                     logger.warning(f"LOCAL_MODEL_PATH not a valid model dir: {self.local_model_dir}")
-                # 尝试从缓存找到可用的 snapshot
                 snap = _find_local_snapshot(self.repo_id)
                 if snap:
                     local_dir = snap
                     logger.info(f"Loading from local snapshot: {snap}")
 
-            # 按顺序尝试：本地 -> 在线；GPU -> CPU
+            # 修改点：显式加载 tokenizer/model，避免 local_files_only 被误传为 model_kwargs
             def _build_pipeline(model_arg, use_local: bool, device_str: str):
+                dtype = torch.float16 if device_str == "cuda" else torch.float32
+                # 1) 明确用 from_pretrained 加载 tokenizer 与 model（支持 local_files_only）
+                tokenizer = AutoTokenizer.from_pretrained(model_arg, local_files_only=use_local, use_fast=True)
+                model = AutoModelForSeq2SeqLM.from_pretrained(model_arg, local_files_only=use_local, torch_dtype=dtype)
+                # 2) 将已加载的 model/tokenizer 传给 pipeline（避免 pipeline 内部传递 local_files_only）
                 return pipeline(
                     "summarization",
-                    model=model_arg,
-                    tokenizer=model_arg,
+                    model=model,
+                    tokenizer=tokenizer,
                     device=0 if device_str == "cuda" else -1,
-                    torch_dtype=torch.float16 if device_str == "cuda" else torch.float32,
-                    local_files_only=use_local,
                 )
 
-            # 1) 本地目录优先（如有）
+            # 1) 本地目录优先
             if local_dir:
                 model_path = _to_posix(str(local_dir))
                 try:
                     self.summarizer = _build_pipeline(model_path, use_local=True, device_str=self.device)
                     self.model_loaded = True
+                    self.model_name = f"{self.repo_id} (local: {model_path})"  # 更新 model_name
                     logger.info(f"Model loaded locally from: {model_path}")
                     return
                 except Exception as e:
                     logger.exception(f"Local model load failed at {model_path}: {e}")
 
-            # 2) 在线加载（GPU）
+            # 2) 在线加载（GPU/指定设备）
             try:
                 self.summarizer = _build_pipeline(self.repo_id, use_local=False, device_str=self.device)
                 self.model_loaded = True
+                self.model_name = f"{self.repo_id} (online)"  # 更新 model_name
                 logger.info(f"Model loaded from hub: {self.repo_id}")
                 return
             except Exception as e:
@@ -132,16 +118,19 @@ class SummarizationService:
                     self.summarizer = _build_pipeline(self.repo_id, use_local=False, device_str="cpu")
                     self.model_loaded = True
                     self.device = "cpu"
-                    logger.info(f"Successfully loaded from hub on CPU (fallback).")
+                    self.model_name = f"{self.repo_id} (online, CPU fallback)"  # 更新 model_name
+                    logger.info("Successfully loaded from hub on CPU (fallback).")
                     return
                 except Exception as e2:
                     logger.exception(f"Fallback to CPU loading also failed: {e2}")
 
             self.model_loaded = False
+            self.model_name = f"{self.repo_id} (failed to load)"  # 加载失败时的 model_name
             logger.error("Model loading failed.")
         except Exception as e:
             logger.error(f"Model loading failed: {e}")
             self.model_loaded = False
+            self.model_name = f"{self.repo_id} (error)"
 
     def shutdown(self) -> None:
         self.thread_pool.shutdown(wait=True)
@@ -149,11 +138,21 @@ class SummarizationService:
     def generate_summary(
         self,
         text: str,
-        max_length: int = 150,
-        min_length: int = 30,
-        num_beams: int = 4,
-        length_penalty: float = 2.0,
+        max_length: int | None = None,
+        min_length: int | None = None,
+        num_beams: int | None = None,
+        length_penalty: float | None = None,
     ) -> str:
+        # 使用配置的默认值
+        if max_length is None:
+            max_length = settings.DEFAULT_MAX_LENGTH
+        if min_length is None:
+            min_length = settings.DEFAULT_MIN_LENGTH
+        if num_beams is None:
+            num_beams = settings.DEFAULT_NUM_BEAMS
+        if length_penalty is None:
+            length_penalty = settings.DEFAULT_LENGTH_PENALTY
+        
         try:
             cleaned_text = preprocess_text(text)
 
@@ -171,7 +170,7 @@ class SummarizationService:
             elif self.model is not None and self.tokenizer is not None:
                 inputs = self.tokenizer(
                     cleaned_text,
-                    max_length=1024,
+                    max_length=settings.MAX_INPUT_LENGTH,
                     truncation=True,
                     return_tensors="pt",
                 ).to(self.device)

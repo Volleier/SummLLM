@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from backend.config import settings
 from backend.core.middleware import setup_cors
 from backend.core.logging_config import get_logger
 from backend.services.summarization_service import SummarizationService
@@ -11,9 +12,9 @@ logger = get_logger(__name__)
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="BART-large-CNN Text Summarization API",
-        description="Text summarization service based on BART-large-CNN model",
-        version="1.0.0",
+        title=settings.APP_TITLE,
+        description=settings.APP_DESCRIPTION,
+        version=settings.APP_VERSION,
     )
 
     # Service instance
@@ -31,7 +32,8 @@ def create_app() -> FastAPI:
     # Lifecycle
     @app.on_event("startup")
     async def startup_event():
-        logger.info("Starting BART-large-CNN text summarization service...")
+        logger.info(f"Starting {settings.APP_TITLE} v{settings.APP_VERSION}...")
+        logger.info(f"Configuration: {settings.display_settings()}")
         await svc.load_model()
 
     @app.on_event("shutdown")
@@ -47,9 +49,9 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        workers=1,
-        log_level="info",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=settings.RELOAD,
+        workers=settings.WORKERS,
+        log_level=settings.LOG_LEVEL,
     )
