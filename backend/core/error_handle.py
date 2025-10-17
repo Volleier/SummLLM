@@ -5,7 +5,7 @@ from typing import Optional
 
 from backend.core.logger import get_logger
 
-_err_logger = get_logger("error_handler")
+logger = get_logger(__name__)
 
 def log_exception(exc: BaseException, context: Optional[str] = None) -> None:
     """
@@ -16,7 +16,7 @@ def log_exception(exc: BaseException, context: Optional[str] = None) -> None:
     ts = datetime.datetime.now().isoformat()
     ctx = f"[{context}] " if context else ""
     # 记录到本地日志（包含堆栈）
-    _err_logger.error(f"{ts} - {ctx}Exception: {exc}", exc_info=True)
+    logger.error(f"{ts} - {ctx}Exception: {exc}", exc_info=True)
     # 同时把可读的错误与堆栈输出到控制台（stderr）
     print(f"{ts} - {ctx}Exception: {exc}", file=sys.stderr)
     traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
@@ -24,5 +24,10 @@ def log_exception(exc: BaseException, context: Optional[str] = None) -> None:
 def log_message(message: str) -> None:
     """记录普通错误/警告消息到日志，并打印到控制台（stderr）。"""
     ts = datetime.datetime.now().isoformat()
-    _err_logger.error(f"{ts} - {message}")
+    logger.error(f"{ts} - {message}")
     print(f"{ts} - {message}", file=sys.stderr)
+
+def handle_exception(request, exc):
+    logger.exception("Global Exception Handling: path=%s error=%s", getattr(request, "url", None), exc)
+    response = {"error": "Internal Server Error", "message": str(exc)}
+    return response

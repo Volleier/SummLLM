@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Literal
+from typing import List, Literal
 
 class Settings:
     """Application configuration settings."""
@@ -96,6 +96,38 @@ class Settings:
             "backend_root": str(cls.get_backend_root()),
             "log_dir": str(cls.get_log_dir()),
         }
+
+    def get_cache_roots(self) -> List[Path]:
+        """
+        返回一个按优先级排列的 cache 根目录列表，供 _find_local_snapshot 搜索 snapshots。
+        优先使用环境变量（HF_HOME、TRANSFORMERS_CACHE），然后是常见默认位置。
+        """
+        roots: List[Path] = []
+
+        hf_home = os.environ.get("HF_HOME")
+        if hf_home:
+            roots.append(Path(hf_home))
+
+        tf_cache = os.environ.get("TRANSFORMERS_CACHE")
+        if tf_cache:
+            roots.append(Path(tf_cache))
+
+        # 常见 huggingface 缓存位置（hub / models）
+        roots.append(Path.home() / ".cache" / "huggingface" / "hub")
+        roots.append(Path.home() / ".cache" / "huggingface" / "models")
+
+        # 去重并返回绝对路径
+        seen = set()
+        final: List[Path] = []
+        for p in roots:
+            try:
+                p = p.resolve()
+            except Exception:
+                p = Path(p)
+            if p not in seen:
+                seen.add(p)
+                final.append(p)
+        return final
 
 
 # 全局配置实例

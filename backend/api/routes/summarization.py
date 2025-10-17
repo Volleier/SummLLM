@@ -7,11 +7,16 @@ from backend.models import (
     BatchSummaryRequest,
     BatchSummaryResponse,
 )
+from backend.core.logger import get_logger
+from backend.core import error_handle
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
 @router.post("/summarize", response_model=SummaryResponse)
 async def summarize_text(request: Request, body: SummaryRequest):
+    logger.info("API /summarize 被调用: user_id=%s model=%s", getattr(body, "user_id", None), getattr(body, "model", None))
     svc = request.app.state.summarization_service
 
     if not svc.model_loaded:
@@ -38,6 +43,7 @@ async def summarize_text(request: Request, body: SummaryRequest):
         summary_length = len(summary.split())
         compression_ratio = original_length / summary_length if summary_length > 0 else 0
 
+        logger.info("/summarize return successful: user_id=%s", getattr(body, "user_id", None))
         return SummaryResponse(
             summary=summary,
             processing_time=processing_time,
@@ -47,6 +53,7 @@ async def summarize_text(request: Request, body: SummaryRequest):
             compression_ratio=round(compression_ratio, 2),
         )
     except Exception as e:
+        error_handle.log_exception(e, context=f"request {request.method} {request.url}")
         raise HTTPException(status_code=500, detail=f"Summary generation failed: {str(e)}")
 
 @router.post("/summarize/batch", response_model=BatchSummaryResponse)
@@ -71,7 +78,6 @@ async def batch_summarize(request: Request, body: BatchSummaryRequest):
                     text,
                     body.max_length,
                     body.min_length,
-                    # 保持与原逻辑一致：批量接口未传递 num_beams/length_penalty
                 )
                 summaries.append(summary)
             else:
