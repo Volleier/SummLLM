@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 from core.config import render_sidebar
 from ui.input import render_input_column
