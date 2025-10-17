@@ -24,11 +24,11 @@ class Settings:
     CORS_ALLOW_HEADERS: list[str] = ["*"]
     
     # ==================== Model Settings ====================
-    # 在线 HuggingFace repo ID
+    # 在线 HuggingFace repo ID（保留）
     HF_REPO_ID: str = os.getenv("HF_REPO_ID", "facebook/bart-large-cnn")
     
-    # 本地模型路径（优先级最高）
-    LOCAL_MODEL_PATH: str | None = os.getenv("LOCAL_MODEL_PATH", "E:/models/bart-large-cnn")
+    # 本地模型路径（必须配置或使用默认），项目要求：只有指定路径且路径内有模型才通过
+    LOCAL_MODEL_PATH: str = os.getenv("LOCAL_MODEL_PATH", "E:/models/bart-large-cnn")
     
     # 设备选择：auto（自动检测）/ cuda / cpu / mps
     DEVICE: Literal["auto", "cuda", "cpu", "mps"] = os.getenv("DEVICE", "auto")  # type: ignore
@@ -37,7 +37,6 @@ class Settings:
     FORCE_DEVICE: str | None = os.getenv("FORCE_DEVICE")
     
     # ==================== Model Generation Settings ====================
-    # 默认生成参数
     DEFAULT_MAX_LENGTH: int = int(os.getenv("DEFAULT_MAX_LENGTH", "150"))
     DEFAULT_MIN_LENGTH: int = int(os.getenv("DEFAULT_MIN_LENGTH", "30"))
     DEFAULT_NUM_BEAMS: int = int(os.getenv("DEFAULT_NUM_BEAMS", "4"))
@@ -46,51 +45,45 @@ class Settings:
     # 输入文本最大长度
     MAX_INPUT_LENGTH: int = int(os.getenv("MAX_INPUT_LENGTH", "1024"))
     
-    # ==================== Service Settings ====================
-    # 线程池最大工作线程数
+    # ==================== Service / Logging Settings ====================
     THREAD_POOL_MAX_WORKERS: int = int(os.getenv("THREAD_POOL_MAX_WORKERS", "4"))
-    
-    # ==================== Cache Settings ====================
-    # HuggingFace 缓存目录
-    HF_HOME: str | None = os.getenv("HF_HOME")
-    HF_HUB_CACHE: str | None = os.getenv("HF_HUB_CACHE")
-    TRANSFORMERS_CACHE: str | None = os.getenv("TRANSFORMERS_CACHE")
-    
-    # ==================== Helper Methods ====================
+    BACKEND_ROOT: str = os.getenv("BACKEND_ROOT", str(Path(__file__).resolve().parents[0]))
+    LOG_DIR_NAME: str = os.getenv("LOG_DIR_NAME", "logs")
+
+    # ==================== Helper Methods (简化) ====================
     @classmethod
-    def get_local_model_path(cls) -> Path | None:
-        """获取并验证本地模型路径."""
-        if not cls.LOCAL_MODEL_PATH:
-            return None
+    def get_local_model_path(cls) -> Path:
+        """
+        返回必须存在且包含模型文件的本地模型目录 Path。
+        - 如果路径不存在或目录内不包含模型文件（config.json + (model.safetensors | pytorch_model.bin)）
+          则抛出 FileNotFoundError。
+        """
         path = Path(cls.LOCAL_MODEL_PATH)
-        if path.exists() and path.is_dir():
-            return path
-        return None
-    
+        if not path.exists() or not path.is_dir():
+            raise FileNotFoundError(
+                f"LOCAL_MODEL_PATH 指定的路径不存在或不是目录: {path}. "
+                f"请通过环境变量 LOCAL_MODEL_PATH 指定正确的本地模型目录。"
+            )
+        has_config = (path / "config.json").exists()
+        has_model = (path / "model.safetensors").exists() or (path / "pytorch_model.bin").exists()
+        if not (has_config and has_model):
+            raise FileNotFoundError(
+                f"LOCAL_MODEL_PATH 目录中缺少模型文件（需要 config.json 与 model.safetensors 或 pytorch_model.bin）: {path}"
+            )
+        return path
+
     @classmethod
-    def get_cache_roots(cls) -> list[Path]:
-        """获取所有可能的 HuggingFace 缓存根目录."""
-        roots = []
-        
-        # 从环境变量获取
-        for cache_path in [cls.HF_HOME, cls.HF_HUB_CACHE, cls.TRANSFORMERS_CACHE]:
-            if cache_path:
-                p = Path(cache_path)
-                roots.append(p)
-                # HF_HOME 通常包含 hub 子目录
-                hub = p / "hub"
-                if hub.exists():
-                    roots.append(hub)
-        
-        # 默认缓存位置
-        default_home = Path.home() / ".cache" / "huggingface" / "hub"
-        roots.extend([default_home, default_home.parent])
-        
-        return roots
+    def get_backend_root(cls) -> Path:
+        return Path(cls.BACKEND_ROOT)
+
+    @classmethod
+    def get_log_dir(cls) -> Path:
+        p = cls.get_backend_root() / cls.LOG_DIR_NAME
+        p.mkdir(parents=True, exist_ok=True)
+        return p
     
     @classmethod
     def display_settings(cls) -> dict:
-        """返回配置摘要（用于日志输出）."""
         return {
             "app_version": cls.APP_VERSION,
             "host": cls.HOST,
@@ -100,6 +93,8 @@ class Settings:
             "local_model_path": cls.LOCAL_MODEL_PATH,
             "max_input_length": cls.MAX_INPUT_LENGTH,
             "thread_pool_workers": cls.THREAD_POOL_MAX_WORKERS,
+            "backend_root": str(cls.get_backend_root()),
+            "log_dir": str(cls.get_log_dir()),
         }
 
 

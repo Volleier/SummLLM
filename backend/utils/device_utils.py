@@ -1,6 +1,6 @@
 import os
 import torch
-from backend.core.logging_config import get_logger
+from backend.core.logger import get_logger
 from backend.config import settings
 
 logger = get_logger(__name__)

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from backend.config import settings
 from backend.core.middleware import setup_cors
-from backend.core.logging_config import get_logger
+from backend.core.logger import get_logger
 from backend.services.summarization_service import SummarizationService
 
 from backend.api.routes.root import router as root_router
