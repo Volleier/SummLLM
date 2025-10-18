@@ -8,8 +8,14 @@ def render_result_column(input_text, config, service):
 
     # Determine whether there is text available to generate a summary
     can_generate = bool(input_text and input_text.strip())
-    # Generate button (disabled when no input)
-    if st.button("Generate Summary", type="primary", use_container_width=True, disabled=not can_generate):
+    # Generate button (disabled when no input or characters <= 100)
+    if 'generate_disabled' not in st.session_state:
+        st.session_state['generate_disabled'] = True
+
+    generate_disabled = st.session_state.get('generate_disabled', True)
+    generate_button = st.button("Generate Summary", disabled=generate_disabled, type="primary", use_container_width=True)
+
+    if generate_button:
         if not can_generate:
             st.warning("Please enter text")
             return
