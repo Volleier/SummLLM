@@ -1,27 +1,22 @@
 import uvicorn
-import argparse
-import os
-import sys
+from backend.config import settings
+from backend.core.logger import get_logger
 
-# Ensure main.py in the same directory can be imported
-sys.path.insert(0, os.path.dirname(__file__))
+logger = get_logger(__name__)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Start the BART summarization backend service")
-    parser.add_argument("--host", default="0.0.0.0", help="bind address")
-    parser.add_argument("--port", type=int, default=8000, help="bind port")
-    parser.add_argument("--reload", action="store_true", help="enable hot reload for development")
-
-    args = parser.parse_args()
-
-    # Import the app object directly to avoid uvicorn's string import failure
-    from main import app 
-
-    uvicorn.run(
-        app,
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-        workers=1,
-        log_level="info"
-    )
+    logger.info("backend start: env=%s", "development")  # 可替换为真实环境/配置
+    try:
+        uvicorn.run(
+            "backend.main:app",
+            host=settings.HOST,
+            port=settings.PORT,
+            reload=settings.RELOAD,
+            workers=settings.WORKERS,
+            log_level=settings.LOG_LEVEL,
+        )
+    except Exception as e:
+        logger.exception("后端启动失败: %s", e)
+        raise
+    finally:
+        logger.info("后端停止")

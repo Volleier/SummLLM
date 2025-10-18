@@ -5,6 +5,8 @@ def render_input_column():
     """
     Render the input area and return the text string provided by the user.
     Supports three input methods: Direct input, Example text, and Upload file.
+    Also provides realtime character count and sets session state flag
+    'generate_disabled' (True = disabled, False = enabled) when count > 100.
     """
     st.subheader("Input Text")
     # Choose input method (radio buttons, horizontal layout)
@@ -50,5 +52,11 @@ def render_input_column():
             # Use core utility function to read uploaded text content
             input_text = load_uploaded_text(uploaded_file)
             st.success(f"File uploaded successfully! File size: {len(input_text)} characters")
+
+    char_count = len(input_text or "")
+    st.caption(f"Character count: {char_count}")
+    if 'generate_disabled' not in st.session_state:
+        st.session_state['generate_disabled'] = True
+    st.session_state['generate_disabled'] = False if char_count > 100 else True
 
     return input_text
