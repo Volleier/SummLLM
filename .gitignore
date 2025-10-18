@@ -10,12 +10,3 @@ logs/
 
 ## Ignore python cache files
 __pycache__/
-
-## Ignore model files
-models/
-*.bin
-*.safetensors
-*.onnx
-*.ot
-*.pt
-*.pth
